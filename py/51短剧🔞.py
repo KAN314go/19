@@ -161,37 +161,65 @@ class Spider(Spider):
         videos = self._parse_cards(html)
         return {"list": videos, "page": int(pg), "pagecount": 999, "total": 99999, "limit": 24}
 
+    def _videoepisodes(self, play_id):
+        # play id 调接口，返回解密后的 data 字典
+        r = self.session.post(self.host + "/video/videoepisodes",
+                              data={"id": str(play_id), "oauth_id": self.oauth_id, "token": ""},
+                              timeout=15)
+        obj = self._decode_play(r.json().get("data", ""))
+        return (obj.get("data") or {}) if isinstance(obj, dict) else {}
+
     def detailContent(self, ids):
-        # 进来的 id 即 play id（短剧播放模式），标题/剧集/封面/简介都来自 /video/videoepisodes
+        # 卡片 id 有两种体系：
+        #   - 分类/搜索页：/play?id={play_id}（play id，即某一集 id，可直接调 videoepisodes）
+        #   - 首页：/video/{video_id}（video id，videoepisodes 接口用它会错位，需先从详情页取真实 play id）
+        # videoepisodes 只认 play id：返回的 episodeAll[0].id 即传入的 play id 时才是正确剧集。
         vid = ids[0]
         self.oauth_id = self.session.cookies.get("OAUTH_ID", self.oauth_id)
         episodes = []
         vod_name = ""
         pic = ""
         desc = ""
-        try:
-            r = self.session.post(self.host + "/video/videoepisodes",
-                                  data={"id": vid, "oauth_id": self.oauth_id, "token": ""},
-                                  timeout=15)
-            obj = self._decode_play(r.json().get("data", ""))
-            d = (obj.get("data") or {}) if isinstance(obj, dict) else {}
-            # play id 调接口，video_title 与当前剧一致（准确，不兜底）
+
+        play_id = vid
+        d = self._videoepisodes(play_id)
+        serials = d.get("episodeAll") or []
+        if isinstance(serials, dict):
+            serials = serials.get("list") or []
+        # 校验：第一集 id 应等于传入 id，否则传入的是 video id，需转成详情页里的真实 play id
+        if not serials or str(serials[0].get("id")) != str(play_id):
+            # 抓 /video/{video_id} 详情页，取第一个真实 play id（如 /play?id=289358）
+            html = self._html(self.host + "/video/" + str(vid))
+            name = re.search(r'<title>(.*?)</title>', html)
+            if name:
+                vod_name = name.group(1).split(" - ")[0].strip()
+            pic_m = re.search(r'property="og:image"\s+content="([^"]+)"', html)
+            if pic_m:
+                pic = pic_m.group(1)
+            plays = re.findall(r'/play\?id=(\d+)', html)
+            if plays:
+                play_id = plays[0]
+                d = self._videoepisodes(play_id)
+                serials = d.get("episodeAll") or []
+                if isinstance(serials, dict):
+                    serials = serials.get("list") or []
+
+        if not vod_name:
             vod_name = d.get("video_title") or ""
+        if not desc:
             desc = d.get("description") or ""
+        if not pic:
             pic = d.get("cover_img") or d.get("first_img") or ""
-            serials = d.get("episodeAll") or []
-            if isinstance(serials, dict):
-                serials = serials.get("list") or []
-            for item in serials:
-                eid = item.get("id")
-                if eid is None:
-                    continue
-                url = item.get("video_url") or ""
-                title = item.get("episode_title") or ("第%d集" % (item.get("sort", 0) or len(episodes) + 1))
-                # 把真实 m3u8 直接写进播放地址，playerContent 检测到 URL 即返回
-                episodes.append("%s$%s" % (title, url or eid))
-        except Exception as e:
-            print("[51duanju] detail episodes err:", e)
+
+        for item in serials:
+            eid = item.get("id")
+            if eid is None:
+                continue
+            title = item.get("episode_title") or ("第%d集" % (item.get("sort", 0) or len(episodes) + 1))
+            # 写入该集的 play id（videoepisodes 返回的 id 即某一集 id），
+            # 由 playerContent 在播放时实时换取带有效 auth_key 的 m3u8，
+            # 避免 detailContent 预取的 auth_key 过期导致全部跳到默认内容。
+            episodes.append("%s$%s" % (title, eid))
 
         vod_play_url = "#".join(episodes)
         vod = {
@@ -206,10 +234,23 @@ class Spider(Spider):
         return {"list": [vod]}
 
     def playerContent(self, flag, id, vipFlags):
-        # detailContent 已将真实 m3u8 写入播放地址（标题$url），此处直接返回
+        # 播放串为 标题$playid（play id 即某一集 id）。
+        # 若为完整 URL 直接返回；否则按 play id 实时调 videoepisodes 换取带有效 auth_key 的 m3u8。
         val = str(id).split("$")[-1]
         if val.startswith("http"):
             return {"playUrl": "", "url": val, "parse": 0, "header": self.headers, "position": "0"}
+        try:
+            d = self._videoepisodes(val)
+            serials = d.get("episodeAll") or []
+            if isinstance(serials, dict):
+                serials = serials.get("list") or []
+            for it in serials:
+                if str(it.get("id")) == str(val):
+                    url = it.get("video_url") or ""
+                    if url:
+                        return {"playUrl": "", "url": url, "parse": 0, "header": self.headers, "position": "0"}
+        except Exception as e:
+            print("[51duanju] player err:", e)
         return {"playUrl": "", "msg": "无效的播放地址: %s" % val}
 
     def localProxy(self, params):
