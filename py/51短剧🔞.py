@@ -162,30 +162,22 @@ class Spider(Spider):
         return {"list": videos, "page": int(pg), "pagecount": 999, "total": 99999, "limit": 24}
 
     def detailContent(self, ids):
+        # 进来的 id 即 play id（短剧播放模式），标题/剧集/封面/简介都来自 /video/videoepisodes
         vid = ids[0]
-        # 详情页基础信息（标题/简介/封面兜底）
-        html = self._html(self.host + "/video/" + vid)
         self.oauth_id = self.session.cookies.get("OAUTH_ID", self.oauth_id)
-        name = re.search(r'<title>(.*?)</title>', html)
-        vod_name = name.group(1).split(" - ")[0].strip() if name else ""
-        desc = ""
-        jld = re.search(r'name="description"\s+content="([^"]+)"', html)
-        if jld:
-            desc = jld.group(1).replace("\\u0026", "&").replace("\\/", "/")
-
-        # 分集来自 /video/videoepisodes（AES 加密响应，前端 JS 动态渲染，详情页 HTML 中无链接）
         episodes = []
+        vod_name = ""
         pic = ""
+        desc = ""
         try:
             r = self.session.post(self.host + "/video/videoepisodes",
                                   data={"id": vid, "oauth_id": self.oauth_id, "token": ""},
                                   timeout=15)
             obj = self._decode_play(r.json().get("data", ""))
             d = (obj.get("data") or {}) if isinstance(obj, dict) else {}
-            if not vod_name and d.get("video_title"):
-                vod_name = d.get("video_title")
-            if not desc and d.get("description"):
-                desc = d.get("description")
+            # play id 调接口，video_title 与当前剧一致（准确，不兜底）
+            vod_name = d.get("video_title") or ""
+            desc = d.get("description") or ""
             pic = d.get("cover_img") or d.get("first_img") or ""
             serials = d.get("episodeAll") or []
             if isinstance(serials, dict):
