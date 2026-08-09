@@ -1,28 +1,5 @@
-#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-《极品少女》TVBox / 影视仓 dr_py Python 源  (HKL 兼容版 | 遮天·极道帝兵·万法归一)
-站点: https://xn--0809-kb2g560h.jpsn47.top/jpsn/
-
-【站点特征 / 加密方案】(基于真实抓包还原，非臆造)
-  - MacCMS v10 (mxtwoa14) 模板，base 路径 /jpsn/。
-  - 全站页面被 jsjiami v7 + AES-CBC 反盗链混淆：每页 HTML 仅含
-      <div id="app">base64</div>  +  一段 jsjiami 解密脚本；
-    真实内容 = AES-CBC 解密 #app 的 base64。公共 JSON 采集接口已被站点禁用。
-  - 解密参数：AES-128-CBC / PKCS7；Key=1234567898882222；IV=8NONwyJtHesysWpM。
-  - 本源内置纯 Python AES-128-CBC（零第三方依赖，经 FIPS-197 向量 + pycryptodome
-    双验证），无需在 TVBox 沙箱安装 pycryptodome 即可用。
-
-【路由】
-  分类:  /jpsn/index.php/vod/type/id/{tid}.html
-  分页:  /jpsn/index.php/vod/type/id/{tid}/page/{pg}.html
-  详情:  /jpsn/index.php/vod/detail/id/{id}.html
-  播放:  /jpsn/index.php/vod/play/id/{id}/sid/{sid}/nid/{nid}.html
-  搜索:  POST /jpsn/index.php/vod/search.html  (wd=关键词)
-
-【播放】播放页内置 `var player_aaaa={...}` JSON，encrypt=0 时 url 为直接 m3u8/mp4。
-  提取该 JSON 的 url 字段返回（parse=0），不猜 Token/签名。
-"""
+#!/usr/bin/env python3
 
 import sys
 import re
@@ -299,42 +276,42 @@ class Spider(object):
     def homeContent(self, filter):
         classes = [
             {"type_id": "174", "type_name": "视频一区"},
-            {"type_id": "138", "type_name": "亚洲有码"},
-		    {"type_id": "156", "type_name": "3P合辑"},
-			{"type_id": "167", "type_name": "VR视角"},
-			{"type_id": "181", "type_name": "国产专区"},
-			{"type_id": "191", "type_name": "精品推荐"},
-			{"type_id": "192", "type_name": "国产精品"},
+            {"type_id": "175", "type_name": "视频二区"},
+            {"type_id": "176", "type_name": "视频三区"},
+            {"type_id": "195", "type_name": "视频四区"},
+            {"type_id": "204", "type_name": "视频五区"},
+            {"type_id": "181", "type_name": "国产专区"},
+            {"type_id": "191", "type_name": "精品推荐"},
+            {"type_id": "192", "type_name": "国产精品"},
             {"type_id": "193", "type_name": "主播秀色"},
             {"type_id": "194", "type_name": "日本有码"},
-			{"type_id": "175", "type_name": "视频二区"},
+            {"type_id": "138", "type_name": "亚洲有码"},
+            {"type_id": "156", "type_name": "3P合辑"},
+            {"type_id": "167", "type_name": "VR视角"},
             {"type_id": "140", "type_name": "中文字幕"},
             {"type_id": "143", "type_name": "人妻熟女"},
             {"type_id": "145", "type_name": "三级伦理"},
-			{"type_id": "146", "type_name": "自拍偷拍"},
+            {"type_id": "146", "type_name": "自拍偷拍"},
             {"type_id": "155", "type_name": "AV明星"},
             {"type_id": "157", "type_name": "巨乳系列"},
-			{"type_id": "163", "type_name": "大秀视频"},
+            {"type_id": "163", "type_name": "大秀视频"},
             {"type_id": "168", "type_name": "素人搭讪"},
-			{"type_id": "176", "type_name": "视频三区"},
-			{"type_id": "139", "type_name": "欧美情色"},
+            {"type_id": "139", "type_name": "欧美情色"},
             {"type_id": "141", "type_name": "动漫卡通"},
             {"type_id": "144", "type_name": "强奸乱伦"},
-			{"type_id": "154", "type_name": "制服诱惑"},
+            {"type_id": "154", "type_name": "制服诱惑"},
             {"type_id": "158", "type_name": "颜射系列"},
             {"type_id": "161", "type_name": "SM重味"},
-			{"type_id": "162", "type_name": "教师学生"},
+            {"type_id": "162", "type_name": "教师学生"},
             {"type_id": "164", "type_name": "日韩精品"},
-            {"type_id": "195", "type_name": "视频四区"},
-			{"type_id": "196", "type_name": "日本无码"},
+            {"type_id": "196", "type_name": "日本无码"},
             {"type_id": "197", "type_name": "童颜巨乳"},
             {"type_id": "198", "type_name": "性感人妻"},
-			{"type_id": "199", "type_name": "卡通动漫"},
+            {"type_id": "199", "type_name": "卡通动漫"},
             {"type_id": "200", "type_name": "丝袜OL"},
             {"type_id": "201", "type_name": "日本片商"},
-			{"type_id": "202", "type_name": "剧情介绍"},
+            {"type_id": "202", "type_name": "剧情介绍"},
             {"type_id": "203", "type_name": "网曝系列"},
-            {"type_id": "204", "type_name": "视频五区"},                                                                                               ,                                              
             {"type_id": "205", "type_name": "麻豆传媒"},
             {"type_id": "206", "type_name": "明星换脸"},
 			{"type_id": "207", "type_name": "国产乱伦"},
