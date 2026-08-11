@@ -160,18 +160,12 @@ class Spider(Spider):
         return {"class": self.classes}
 
     def homeVideoContent(self):
-        """首页推荐（分类下钻）"""
-        return {"list": [{"vod_id": "folder$" + str(c.get("type_id", "")), "vod_name": c.get("type_name", ""), "vod_pic": "", "vod_remarks": "分类", "vod_tag": "folder"} for c in self.classes if c.get("type_id") and c.get("type_name")]}
-
+        """首页推荐（最新）"""
+        return self.categoryContent("0", "1", False, {})
 
     def categoryContent(self, tid, pg, filter=False, extend=None):
         """分类列表"""
         pg = int(pg) if pg else 1
-        tid = str(tid or "0")
-        if tid.startswith("folder$"):
-            tid = tid.split("$", 1)[1]
-        if tid.startswith("/cat/"):
-            tid = tid.strip("/").split("/")[-1]
         # 构造 URL
         if tid == "0":  # 首页
             base_url = self.host + "/"
