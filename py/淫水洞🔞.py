@@ -42,7 +42,7 @@ class Spider(Spider):
 
     def homeContent(self, filter):
         classes = [
-            {'type_id': '1',  'type_name': '视频一区'},
+            {'type_id': 'type',  'type_name': '视频一区'},
             {'type_id': '28', 'type_name': '视频二区'},
             {'type_id': '39', 'type_name': '视频三区'},
             {'type_id': '50', 'type_name': '视频四区'},
