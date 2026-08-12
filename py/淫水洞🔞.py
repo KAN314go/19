@@ -42,14 +42,10 @@ class Spider(Spider):
 
     def homeContent(self, filter):
         classes = [
-            {'type_id': 'type',  'type_name': '视频一区'},
-            {'type_id': '28', 'type_name': '视频二区'},
-            {'type_id': '39', 'type_name': '视频三区'},
-            {'type_id': '50', 'type_name': '视频四区'},
-            {'type_id': '56', 'type_name': '视频五区'},
-            {'type_id': '68', 'type_name': '视频六区'},
-            {'type_id': '77', 'type_name': '热搜视频'},
-            {'type_id': '86', 'type_name': '劲爆黑料'}
+            {'type_id': '28', 'type_name': '视频1区'},
+            {'type_id': '39', 'type_name': '视频2区'},
+            {'type_id': '50', 'type_name': '视频3区'},
+            {'type_id': '56', 'type_name': '视频4区'},
         ]
         
         tags = ["同居", "内射", "多水", "胸大", "网袜", "女神", "另类", "长发", "SM"]
