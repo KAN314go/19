@@ -38,7 +38,7 @@ class Spider(BaseSpider):
         {"type_name": "\u7efc\u827a", "type_id": "3"},
         {"type_name": "\u52a8\u6f2b", "type_id": "4"},
         {"type_name": "\u77ed\u5267", "type_id": "27"},
-        {"type_name": "\u7eaa\u5f55", "type_id": "20"},
+        {"type_name": "\u7eaa\u7247", "type_id": "20"},
     ]
     DETAIL_RE = re.compile(r"/detail-([^/?#'\"<>]+)/", re.I)
     PLAY_RE = re.compile(r"/play-([^/?#'\"<>]+)-(\d+)-(\d+)/", re.I)
