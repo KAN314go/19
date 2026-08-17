@@ -1,6 +1,7 @@
 import base64
 import hashlib
 import json
+import re
 import time
 import urllib.parse
 import zlib
@@ -10,9 +11,10 @@ import requests
 from base.spider import Spider as BaseSpider
 
 
-FILM_FILTERS = {"3": "国产", "2": "日本", "1": "欧美", "4": "直播"}
-FILM_ORDER = ("3", "2", "1", "4")
+FILM_FILTERS = {"6_1": "欧美", "6_2": "日本", "6_3": "国产", "6_4": "直播", "6_5": "新作", "3_3": "4K独播", "manga": "漫画", "album": "写真"}
+FILM_ORDER = ("6_3", "6_2", "6_1", "6_5", "3_3", "6_4", "manga", "album")
 ONE_API = "https://api.em1oifd0.com/"
+ONE_MIRRORS = ("https://api.3459381.com/", "https://api.61c76a0.com/", "https://api.87735d5.com/", "https://api.c6dd5cc.com/", "https://api.j7y675.com/", "https://api.em1oifd0.com/")
 BOOTSTRAP_LINES = ("http://198.44.248.101:9672/", "http://198.44.248.102:9672/", "http://122.10.20.249:9672/")
 BOX_KEY = b"dnf45as45fs1ace1"
 BOX_IV = b"dn5as4fs1ac5f4e1"
@@ -94,7 +96,6 @@ class Spider(BaseSpider):
         self._config = None
         self._token = None
         self._hosts = {}
-        self._pagination = {}
         self._session = requests.Session()
         self._session.headers.update({"User-Agent": "Dart/3.4 (dart:io)"})
 
@@ -144,13 +145,24 @@ class Spider(BaseSpider):
         sign = hashlib.md5((first + ONE_SIGN_SUFFIX).encode()).hexdigest()
         return {"ip": ip, "uuid": uuid, "timestamp": timestamp, "platform": platform, "token": self._token, "sign": sign, "user-key": user_key, "app-version": "2.6.3.1", "Content-Type": "application/x-www-form-urlencoded"}
 
-    def _request(self, endpoint, params):
+    def _request(self, endpoint, params, retries=1):
         query = "&".join("{}={}".format(key, params[key]) for key in sorted(params))
         encoded = base64.b64encode(_aes(query.encode(), ONE_KEY, ONE_IV)).decode()
-        response = self._session.post(self._hosts.get("one", ONE_API).rstrip("/") + "/" + endpoint.lstrip("/"), data=encoded, headers=self._one_headers(), timeout=REQUEST_TIMEOUT)
-        response.raise_for_status()
-        decoded = _aes(base64.b64decode(response.text.strip()), ONE_KEY, ONE_IV, decrypt=True)
-        return json.loads(_unpad(decoded).decode("utf-8"))
+        primary = self._hosts.get("one", ONE_API)
+        bases = [primary] + [m for m in ONE_MIRRORS if m != primary][:1]
+        last = None
+        for attempt in range(retries + 1):
+            for base in bases:
+                try:
+                    response = self._session.post(base.rstrip("/") + "/" + endpoint.lstrip("/"), data=encoded, headers=self._one_headers(), timeout=8)
+                    response.raise_for_status()
+                    decoded = _aes(base64.b64decode(response.text.strip()), ONE_KEY, ONE_IV, decrypt=True)
+                    return json.loads(_unpad(decoded).decode("utf-8"))
+                except Exception as error:
+                    last = error
+            if attempt < retries:
+                time.sleep(0.4 * (attempt + 1))
+        raise last
 
     def _one_url(self, name, path):
         prefix = self._hosts.get(name, "")
@@ -185,6 +197,15 @@ class Spider(BaseSpider):
     def homeVideoContent(self):
         return {"list": []}
 
+    def _series_item(self, item, kind):
+        cover = item.get("thumb") or item.get("thumbnail") or ""
+        if cover and not cover.startswith(("http://", "https://")):
+            cover = self._one_url("one_img", cover)
+        if cover:
+            cover = self._proxy_url(cover)
+        vid = ("m:" if kind == "manga" else "a:") + str(item.get("id", ""))
+        return {"vod_id": vid, "vod_name": item.get("title", ""), "vod_pic": cover, "vod_remarks": (item.get("latest_at") or "")[:10], "vod_year": (item.get("first_at") or "")[:4], "vod_content": "作者: {}".format(item.get("author", "")), "vod_play_from": "漫画" if kind == "manga" else "写真", "vod_play_url": "全篇${}".format(vid)}
+
     def categoryContent(self, tid, pg, filter, extend):
         error = self._ensure_ready()
         if error:
@@ -193,9 +214,122 @@ class Spider(BaseSpider):
         if demand_tag_id not in FILM_FILTERS:
             demand_tag_id = FILM_ORDER[0]
         page = max(1, int(pg))
-        params = {"demand_tag_id": int(demand_tag_id), "model_id": 6, "page": page, "published_at": time.strftime("%Y-%m"), "size": 20, "sort": "published_at"}
         try:
-            result = self._request("v2.5/article/discovery", params)
+            if demand_tag_id in ("manga", "album"):
+                ep = "v2.5/series/manga/list" if demand_tag_id == "manga" else "v2.5/series/album/list"
+                result = self._request(ep, {"page": page, "size": 20})
+                items = result.get("data", []) if isinstance(result, dict) else []
+                rows = [self._series_item(item, demand_tag_id) for item in items if item.get("id")]
+                return {"page": page, "pagecount": page + 1 if len(rows) >= 20 else page, "limit": 20, "total": len(rows), "list": rows}
+            model, tag = (int(x) for x in demand_tag_id.split("_"))
+            items, month_back, inner_page = self._monthly_discovery(model, tag, page)
+        except Exception:
+            return {"page": page, "pagecount": page, "limit": 20, "total": 0, "list": []}
+        seen = set()
+        rows = []
+        for item in items:
+            identity = item.get("id")
+            if identity in seen:
+                continue
+            seen.add(identity)
+            rows.append(self._item(item))
+        page_count = page
+        if month_back >= 0:
+            page_count = page + 1 if self._has_next(model, tag, month_back, inner_page) else page
+        return {"page": page, "pagecount": page_count, "limit": 20, "total": len(rows), "list": rows}
+
+    @staticmethod
+    def _month_str(back):
+        import datetime
+        now = datetime.datetime.now()
+        year, month = now.year, now.month - back
+        while month <= 0:
+            month += 12
+            year -= 1
+        return "%04d-%02d" % (year, month)
+
+    def _monthly_discovery(self, model, tag, page, months=12):
+        acc = 0
+        for back in range(months):
+            month = self._month_str(back)
+            result = self._request("v2.5/article/discovery", {"demand_tag_id": tag, "model_id": model, "page": 1, "published_at": month, "size": 20, "sort": "published_at"})
+            first = result.get("data", []) if isinstance(result, dict) else []
+            pages = (len(first) + 19) // 20
+            if not pages:
+                continue
+            if page <= acc + pages:
+                inner = page - acc
+                if inner > 1:
+                    again = self._request("v2.5/article/discovery", {"demand_tag_id": tag, "model_id": model, "page": inner, "published_at": month, "size": 20, "sort": "published_at"})
+                    first = again.get("data", []) if isinstance(again, dict) else []
+                return first, back, inner
+            acc += pages
+        return [], -1, 1
+
+    def _has_next(self, model, tag, month_back, inner_page):
+        try:
+            if inner_page > 1:
+                month = self._month_str(month_back)
+                result = self._request("v2.5/article/discovery", {"demand_tag_id": tag, "model_id": model, "page": inner_page + 1, "published_at": month, "size": 20, "sort": "published_at"})
+                if result.get("data"):
+                    return True
+            for nb in (month_back + 1, month_back + 2):
+                result = self._request("v2.5/article/discovery", {"demand_tag_id": tag, "model_id": model, "page": 1, "published_at": self._month_str(nb), "size": 20, "sort": "published_at"})
+                if result.get("data"):
+                    return True
+            return False
+        except Exception:
+            return True
+
+    def detailContent(self, ids):
+        error = self._ensure_ready()
+        if error:
+            return error
+        try:
+            raw = str(ids[0] if isinstance(ids, (list, tuple)) else ids)
+            kind = ""
+            if raw.startswith(("m:", "a:")):
+                kind = raw[:1]
+                raw = raw[2:]
+            item_id = int(raw)
+            if kind:
+                result = self._request("v2.5/series/chapters", {"series_id": item_id})
+                d = result.get("data") or {}
+                chapters = d.get("chapters") or [] if isinstance(d, dict) else []
+                cover = d.get("thumb") or ""
+                if cover and not cover.startswith(("http://", "https://")):
+                    cover = self._one_url("one_img", cover)
+                if cover:
+                    cover = self._proxy_url(cover)
+                play_url = "#".join("{}${}".format((c.get("title") or "第{}话".format(c.get("chapter", ""))).replace("#", " ").replace("$", " "), c.get("id")) for c in chapters if c.get("id"))
+                detail = {"vod_id": raw, "vod_name": d.get("title", ""), "vod_pic": cover, "vod_year": (d.get("first_at") or "")[:4], "vod_area": "", "vod_class": "", "vod_director": "", "vod_actor": d.get("author", ""), "vod_content": d.get("description", ""), "vod_remarks": "共{}话".format(len(chapters)), "vod_play_from": "漫画" if kind == "m" else "写真", "vod_play_url": play_url}
+                return {"list": [detail]}
+            result = self._request("v2.5/article/detail", {"id": item_id})
+            item = result.get("data", {})
+            media = _choose_media(item)
+            play_entries = [("正片", item_id)] if media else []
+            series_id = item.get("series_id")
+            if series_id and media:
+                try:
+                    chapters = self._request("v2.5/series/chapters", {"series_id": int(series_id)}).get("data", {}).get("chapters", [])
+                    if chapters:
+                        play_entries = [(chapter.get("title") or "第{}集".format(chapter.get("chapter", "")), chapter.get("id")) for chapter in chapters if chapter.get("id")]
+                except Exception:
+                    pass
+            play_url = "#".join("{}${}".format(title.replace("#", " ").replace("$", " "), chapter_id) for title, chapter_id in play_entries)
+            detail = self._item(item)
+            detail.update({"vod_id": str(item_id), "vod_play_from": "One" if play_entries else "", "vod_play_url": play_url})
+            return {"list": [detail]}
+        except Exception as error:
+            return _diagnostic("详情请求失败", type(error).__name__)
+
+    def searchContent(self, key, quick, pg="1"):
+        error = self._ensure_ready()
+        if error:
+            return error
+        try:
+            page = max(1, int(pg))
+            result = self._request("v2.5/article/search", {"keyword": str(key), "page": page, "size": 20})
             items = result.get("data", []) if isinstance(result, dict) else []
             seen = set()
             rows = []
@@ -205,43 +339,9 @@ class Spider(BaseSpider):
                     continue
                 seen.add(identity)
                 rows.append(self._item(item))
-            state = self._pagination.setdefault(demand_tag_id, {})
-            state[page] = len(rows)
-            if len(rows) == 20 and page + 1 not in state:
-                lookahead_params = dict(params)
-                lookahead_params["page"] = page + 1
-                lookahead = self._request("v2.5/article/discovery", lookahead_params)
-                state[page + 1] = len(lookahead.get("data", [])) if isinstance(lookahead, dict) else 0
-            terminal = min((number for number, count in state.items() if count < 20), default=page + 1)
-            page_count = terminal
-            total = sum(state.get(number, 20) for number in range(1, terminal + 1))
-            return {"page": page, "pagecount": page_count, "limit": 20, "total": total, "list": rows}
-        except Exception as error:
-            return _diagnostic("分类请求失败", type(error).__name__)
-
-    def detailContent(self, ids):
-        error = self._ensure_ready()
-        if error:
-            return error
-        try:
-            item_id = int(ids[0] if isinstance(ids, (list, tuple)) else ids)
-            result = self._request("v2.5/article/detail", {"id": item_id})
-            item = result.get("data", {})
-            media = _choose_media(item)
-            play_entries = [("正片", item_id)] if media else []
-            series_id = item.get("series_id")
-            if series_id and media:
-                chapters = self._request("v2.5/series/chapters", {"series_id": int(series_id)}).get("data", {}).get("chapters", [])
-                play_entries = [(chapter.get("title") or "第{}集".format(chapter.get("chapter", "")), chapter.get("id")) for chapter in chapters if chapter.get("id")]
-            play_url = "#".join("{}${}".format(title.replace("#", " ").replace("$", " "), chapter_id) for title, chapter_id in play_entries)
-            detail = self._item(item)
-            detail.update({"vod_id": str(item_id), "vod_play_from": "One" if play_entries else "", "vod_play_url": play_url})
-            return {"list": [detail]}
-        except Exception as error:
-            return _diagnostic("详情请求失败", type(error).__name__)
-
-    def searchContent(self, key, quick, pg="1"):
-        return {"list": [], "page": int(pg), "pagecount": 1, "limit": 0, "total": 0, "error": "第一分类未证实搜索语义，安全返回空结果"}
+            return {"list": rows, "page": page, "pagecount": page if len(rows) < 20 else page + 1, "limit": 20, "total": len(rows)}
+        except Exception:
+            return {"list": [], "page": 1, "pagecount": 1, "limit": 0, "total": 0}
 
     def playerContent(self, flag, id, vipFlags):
         error = self._ensure_ready()
@@ -251,6 +351,17 @@ class Spider(BaseSpider):
             item_id = int(str(id).split("$")[-1])
             result = self._request("v2.5/article/detail", {"id": item_id})
             item = result.get("data", {})
+            content = item.get("content") or item.get("description") or ""
+            images = re.findall(r'<img[^>]+src=["\']([^"\']+)["\']', content)
+            if images:
+                urls = []
+                for src in images:
+                    if src.startswith("http"):
+                        urls.append(src)
+                    else:
+                        urls.append(self._one_url("one_img", src))
+                pics = "&&".join(self._proxy_url(u) for u in urls)
+                return {"parse": 0, "playUrl": "", "url": "pics://" + pics, "header": {"User-Agent": "Dart/3.4 (dart:io)"}}
             media = _choose_media(item)
             if not media:
                 return {"parse": 0, "playUrl": "", "url": "", "header": {}, "error": "无已证实正片源，未将试看或预览标为正片"}
