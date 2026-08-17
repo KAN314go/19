@@ -1,7 +1,4 @@
-# 果冻传媒 T3 类型爬虫
-# API: api3.gdapi1.com (AES-128-CBC 加密)
-
-# coding=utf-8
+# -*- coding: utf-8 -*-
 # !/usr/bin/python
 
 import sys
