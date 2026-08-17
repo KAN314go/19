@@ -12,7 +12,7 @@ class Spider(Spider):
     UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
 
     CATS = [
-        {'type_id': '41', 'type_name': '有码番号'},
+       # {'type_id': '41', 'type_name': '有码番号'},
         {'type_id': '39', 'type_name': '番号视频'},
         {'type_id': '39&fenlei=中文字幕', 'type_name': '中文字幕'},
         {'type_id': '39&fenlei=巨乳美乳', 'type_name': '巨乳美乳'},
